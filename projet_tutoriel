@@ -1,0 +1,177 @@
+
+#install.packages("ncdf4")
+#install.packages("fields")
+#install.packages("RColorBrewer")
+#install.packages("maps")
+
+require(ncdf4)
+require(fields)
+require(maps)
+
+
+
+TX <- nc_open("tx_ens_mean_0.25deg_reg_v22.0e.nc") # permet d'ouvrir le fichier netcdf
+
+
+TX #donnes les caractéristiques de "TX" 
+
+
+lat <- ncvar_get(TX,"latitude")
+
+length(lat)
+
+head(lat,25) #permet d'afficher les 25 premières valeurs de lon
+
+summary(lat) # donnera les principales caractéristiques de lon (min, les quartiles, max)
+
+lat[20:30] # affichera que les valeurs 20 à 30
+
+lon <- ncvar_get(TX,"longitude")
+
+length(lon)
+
+
+
+#sélectionner les longitudes/latitudes qu'on souhaite conserver
+
+lat_rng<-c(34,72) #créer un fichier avec les valeurs bornes pour les latitudes
+lon_rng<-c(-12,42) #créer un fichier avec les valeurs bornes pour les longitudes
+
+
+lat_ind<-which(lat>=lat_rng[1] & lat<=lat_rng[2]) # ne conserve que les lat comprises entre 34°N et 72°N, entre la première valeur [1] (soit 34) et la deuxième valeur [2] de lat_rng (soit 72)
+
+lat_ts<-lat[lat_ind] # indique le rang des latitudes conservées dans le fichier de base des latitudes
+
+lon_ind<-which(lon>=lon_rng[1] & lon<=lon_rng[2]) # ne conserve que les lat comprises entre -12°E et 42°E, entre la première valeur [1] et la deuxième valeur [2] de lon_rng
+
+lon_ts<-lon[lon_ind] # indique le rang des longitudes conservées dans le fichier de base des latitudes
+
+
+# extraire l'ensemble des données pour les longitudes/latitude souhaitées
+
+TX_ts<-ncvar_get(TX,"tx",start=c(lon_ind[1],lat_ind[1],1),count=c(length(lon_ind),length(lat_ind),-1))
+
+
+length(TX_ts)
+dim(TX_ts)
+
+image.plot(TX_ts[,,1]) # faire la carte des températures maximales du premier jour étudié
+image.plot(lon_ts,lat_ts,TX_ts[,,1]) # faire la même carte, avec en plus les valeurs de longitude et latitude en ordonné et abscisse 
+
+
+##########################
+# supprimer les 29 févriers et garder du 01-01-1950 au 31-12-2019
+
+date<-seq.Date(from=as.Date('1950-01-01'), to=as.Date('2020-06-30'), by='days')#créer un fichier de date avec l'ensemble des jours entre le 01-01-1950 et le 30-06-2020
+
+yr<-format(date, format = "%Y")
+mth<-format(date, format = "%m")
+day<-format(date, format = "%d")
+
+bi<-which(format(date, format = "%m")=="02" & format(date, format = "%d")=="29") #sélectionner les 29 févriers
+
+which(format(date, format = "%m")=="12")
+
+date_ssbi<-date[-bi] #supprimer les 29 févriers dans le fichier de date
+
+TX_ssbi<-TX_ts[,,-bi] #supprimer les 29 févriers dans le fichier des températures max
+
+
+#une fois les bi supprimés :
+
+which(format(date_ssbi, format = "%Y")==2019 & format(date_ssbi, format = "%m")=="12" & format(date_ssbi, format = "%d")=="31") #regarder à quel jour correspond le 31-12-2019 pour ne concerver que des années complètes
+
+TX_ok<-TX_ssbi[,,1:25550]
+
+rm(TX_ssbi)#supprimer le fichier TX_ssbi
+rm(TX_ts)#supprimer le fichier TX_ts
+
+######################
+#boucles pour découper en années (70 années)
+
+
+someData <- rep(0, 70*365*216*152);
+mat4d <- array(someData, c(70, 365, 216, 152));  #matrice 4d
+rm(someData)#supprimer le fichier someData
+
+AA<-aperm(TX_ok,c(3,1,2))
+
+#boucles
+for (i in 1:70)
+{for (k in 1:216)
+{for (l in 1:152)
+{mat4d[i,,k,l]<-AA[(i*365-364):(i*365),k,l]}}}
+
+#faire la somme par année (! la somme des températures n'est pas un indice climatique valable, on utilise ça ici uniquement pour détecter les points de grille avec des années manquantes)
+sum_mat4d<-apply(mat4d,c(1,3,4),sum,na.rm=T) # "c" combine value into mat4d vector or list 
+
+
+sum_mat4d[1,154,120] #exemple avec le point de grille ayant la longitude n°154 et la latitude n°120
+mat4d[1,,154,120]
+sum(mat4d[1,,154,120])
+
+
+
+######################
+# regression linéaire
+
+X<-c(1:1:70) #vecteur du temps étudié, soit X dans Y=aX+b
+
+#une fonction qui permettra d'isoler les p.values
+lmp <- function (modelobject) {
+  if (class(modelobject) != "lm") stop("Not an object of class 'lm' ")
+  f <- summary(modelobject)$fstatistic
+  p <- pf(f[1],f[2],f[3],lower.tail=F)
+  attributes(p) <- NULL
+  return(p)} # permet d'isoler la p.value
+lmp(mod)
+
+#une fonction qui permettra d'isoler les coefficients "a" ed Y=aX+b
+lmc <- function (modelobject){
+  if (class(modelobject) != "lm") stop("Not an object of class 'lm' ")
+  coeff<-coef(mod)[2]
+  attributes(coeff)<- NULL
+  return(coeff)
+} # permet d'isoler le coefficient
+lmc(mod)
+
+regr<-matrix(0,nrow=length(lon_ind),ncol=length(lat_ind))
+for (i in 1:length(lon_ind)){
+for (j in 1:length(lat_ind)){
+mod<-lm(sum_a[,i,j]~X)
+regr[i,j]<-lmc(mod)
+}} 
+
+
+dim(regr)
+regr[154,120]
+
+image.plot(lon_ts,lat_ts,regr) #vous pouvez rajouter suite à regr : ,legend.width=1.5,legend.shrink=1, horizontal=T
+map(add=T) # affiche les frontières ; s'assurer que le packages "maps" est bien activé
+
+
+which(regr>10) #exemple du point de grille 62
+plot(sum_a[,62,1])
+
+
+missyear<-matrix(0,nrow=length(lon_ind),ncol=length(lat_ind))
+for (i in 1:length(lon_ind)){
+for (j in 1:length(lat_ind)){
+missyear[i,j]<-length(which(sum_a[,i,j]==0))}}
+
+image.plot(lon_ts,lat_ts,missyear,legend.width=1.5,legend.shrink=1)
+map(add=T) # affiche les frontières ; s'assurer que le packages "maps" est bien activé
+
+pt_Nan<-which(missyear==70)#retrouve tous les points de grille sans données
+missyear[pt_Nan]<-NaN
+image.plot(lon_ts,lat_ts,missyear,legend.width=1.5,legend.shrink=1)
+map(add=T) # affiche les frontières ; s'assurer que le packages "maps" est bien activé
+
+pt_exclure<-which(missyear>0)#retrouve tous les points de grille avec au moins une année sans données
+missyear[pt_exclure]<-NaN
+
+image.plot(lon_ts,lat_ts,missyear,legend.width=1.5,legend.shrink=1)
+map(add=T) # affiche les frontières ; s'assurer que le packages "maps" est bien activé
+
+
+save(pt_exclure,file="pt_exclure") #permet de sauvegarder la liste des points de grille à exclure de vos traitements, sans avoir à tout refaire à chaque fois
