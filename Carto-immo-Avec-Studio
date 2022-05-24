@@ -1,0 +1,202 @@
+################################################################################
+# Importer les couches dâinformation et les cartographier (4 points)
+
+
+# Appel des library
+library(cartography)
+library(sf)
+library(leaflet)
+library(mapsf)
+
+# Affichage des couches prÃ©sentent dans le Geopackages
+Couches <- st_layers('data/dvf.gpkg')
+
+
+# Importation des donnÃ©es
+com <- st_read("data/dvf.gpkg", layer = "com") 
+parc <- st_read("data/dvf.gpkg", layer = "parc") 
+route <- st_read("data/dvf.gpkg", layer = "route") 
+rail <- st_read("data/dvf.gpkg", layer = "rail") 
+apt <- st_read("data/dvf.gpkg", layer = "dvf") 
+# import des 4 couches d'informations
+# allons maintenant superpose les couches pou cela nous utiliserons la library mapsf
+mf_export(x = com, width = 800, filename = "img/Localisation.png")
+mf_theme("darkula" , )
+mf_map(x = parc, pch = 20, cex = .7, col = "black", add = TRUE)
+mf_map(x = route, lwd = .2, col = "gray22", cex = .2 , add = TRUE)
+mf_map(x = rail, lwd = .2, col = "gray14", add = TRUE)
+mf_map(x = apt, lwd = .5, pch = 20 , cex = .1, col = "green3", add = TRUE)
+mf_map(x = com, border = 'white', col = NA , add = TRUE)
+
+mf_title("carte de la région étudiée:Vicennes et Montreuil")
+mf_arrow(pos = )
+mf_scale((500),unit = "m")
+mf_credits(paste0("BD CARTO, IGN. 2021\nLes contributeurs d'OpenStreetMaop, 2021\nDemande de valeurs foncière géolocalisées, Etalab, 2021\nAuteur: Thiondy GASSAMA"))
+
+
+# La fonction devoff() permet de fermer la carte après export.
+dev.off()
+
+
+################################################################################
+# Carte des prix de l’immobilier (4 points)
+################################################################################ 
+
+# cartographie de l'activité immobiliere au métre carré Communes de Vincennes et de Montreuil
+# La fonction mf_export permet d'exporter la carte créée.
+
+mf_export(x = com, width = 800 , filename = "img/PrixImobilier.png")
+mf_theme("darkula")
+mf_map(x = com, border = 'white', col = NA)
+mf_map(x = parc, pch = 20, cex = .7, col = "black", add = TRUE)
+mf_map(x = route, lwd = .2, col = "gray22", cex = .2 , add = TRUE)
+mf_map(x = rail, lwd = .2, col = "gray14", add = TRUE)
+mf_map(x = apt, lwd = .5, pch = 20 , cex = .1, col = "red", var = "prix",
+       type = "choro"
+       , nbreaks = 6,
+       breaks = "quantile",
+       pal = "Reds 3", 
+       leg_title = "Prix"
+       , leg_val_rnd = 0 , add = TRUE )
+mf_map(x = com, border = 'white', col = NA , add = TRUE)
+mf_title(" Prix de l’immobilier à Vincennes et Montreuil")
+mf_arrow()
+mf_scale(unit = "m")
+mf_credits(
+  txt = "BD CARTO®, IGN, 2021les contributeurs d’OpenStreetMap, 2021\nDemandes de valeurs foncières géolocalisées, Etalab, 2021\nAuteur: Thiondy GASSAMA",
+  pos = "bottomleft",
+  cex = 0.6,
+  font = 3
+)
+# La fonction devoff() permet de fermer la carte après export.
+dev.off()
+
+# Justification de la discrétisation (statistiques, boxplot, histogramme, 
+# beeswarm...)
+summary(apt$prix)
+hist(apt$prix , col = 'gray22')
+
+
+################################################################################ 
+# Prix de lâimmobilier dans le voisinnage de la Mairie de Montreuil (4 points)
+################################################################################ 
+
+
+# 3. CrÃ©ation de notre point pour localiser la Marie
+mairie <- st_as_sf(data.frame(x = 2.4410, y = 48.8624), 
+                   coords = c("x", "y"), crs = 4326)
+mairie
+
+# verification du CRS 
+st_crs(mairie)
+
+# transformation du CRS en 2154
+m_reproj <- st_transform(mairie, "epsg:2154")
+# cal de la mediane de au tour de la mairie
+mairie_Buffer <- st_buffer(x = m_reproj, dist = 500)
+intersect<- st_intersection(apt,mairie_Buffer)
+VAl<- median(intersect$prix)
+cat(paste0("Le prix de l'immobilier dans un voisinnage de 500 mÃ¨tres ",
+           "autour de la mairie de Montreuil est de ::", 
+           round(VAl, 0), 
+           " euros par mÂ²"))
+
+
+################################################################################ 
+# Utilisation dâun maillage rÃ©gulier (4 points)
+################################################################################ 
+
+# Création de la grille régulière avec st_make_grid()
+
+grid <- st_make_grid(x = com, cellsize = 250) 
+
+
+# Ajouter un identifiant unique, voir chapitre 3.7.6
+# dans https://rcarto.github.io/geomatique_avec_r/
+
+# Transformation de la grille en objet sf et ajout de l'identifiant unique
+grid <- st_sf(ID = 1:length(grid), geom = grid)
+
+
+# plot de la grille créer avec les limites communales 
+plot(st_geometry(grid), col = "grey", border = "white")
+plot(st_geometry(com), border = "blue",cex = .7, add = TRUE)
+
+
+# Compter le nombre de transaction dans chaque carreau, voir chapitre 3.7.7
+# dans : https://rcarto.github.io/geomatique_avec_r/
+
+inter <- st_intersects(grid, apt, sparse = FALSE)
+nbr_apt <- sapply(X = inter, FUN = length) 
+plot(nbr_apt)
+
+
+# Calculez le prix median par carreau, voir chapitre 3.7.8
+# dans https://rcarto.github.io/geomatique_avec_r/
+
+# st_intersection(), aggregate(), merge()
+
+# intersection avec la commune 
+grid_com <-st_intersection(y=grid, x=com, sparse = TRUE)
+
+plot(st_geometry(grid_com), col = "grey", border = "white")
+plot(st_geometry(com), border = "blue",cex = .7, add = TRUE)
+
+# les carreaux des grilles qui intersectent les  apts 
+
+inter_apt <- st_intersects(grid, apt, sparse = TRUE)
+grid$nb_apt <- sapply(X = inter_apt, FUN = length)
+plot(grid["nb_apt"])
+
+#intersection entre les grid et les appartement
+apt_grid <- st_intersection(grid, apt,sparse = TRUE)
+
+# aggregation
+prix_median <- aggregate(x = list(prix_median= apt_grid$prix), 
+                         by = list(ID = apt_grid$ID), 
+                         FUN = "median")
+
+#Jointure
+
+merge_careau<- merge(grid , prix_median, by = "ID", all.x=TRUE)
+
+
+
+# Selectionner les carreaux ayant plus de 10 transactions, voir chapitre 3.5
+# dans https://rcarto.github.io/geomatique_avec_r/
+
+my_carreau<- merge_careau[merge_careau$nb_transaction > 10,]
+
+# Representation cartographique
+mf_export(x = com, width = 800,
+          filename = "img/CarteCareau.png")
+mf_map(x = my_carreau,
+  lwd = .5, pch = 20 , cex = 1, col = "red",
+  var = "prix_median", 
+  type = "choro", 
+  breaks = brks, 
+  pal = "BuPu",
+  add = TRUE)
+mf_map(x = apt, lwd = .5, pch = 20 , cex = .1, col = "white", add = TRUE)
+mf_arrow()
+mf_scale(unit = "m")
+mf_title("prix médian par carreau")
+mf_credits(
+  txt = "BD CARTO®, IGN, 2021\nles contributeurs d’OpenStreetMap, 2021\nDemandes de valeurs foncières géolocalisées, Etalab, 2021\nAuteur: Thiondy GASSAMA",
+  pos = "bottomleft",
+  cex = 0.6,
+  font = 3
+)
+dev.off()
+
+
+# Justification de la discrétisation (statistiques, boxplot, histogramme, 
+# beeswarm...)
+
+
+
+
+
+
+
+
